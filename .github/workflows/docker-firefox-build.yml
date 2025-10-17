@@ -1,74 +1,155 @@
+# ============================================================================
+# GitHub Actions Workflow: 手动构建 Firefox Docker 镜像
+# ============================================================================
+#
+# 这个 workflow 的作用：
+#   - 构建支持多平台（amd64 + arm64）的 Firefox Docker 镜像
+#   - 可以手动触发（点击按钮运行）
+#   - 可选择是否推送到 GitHub Container Registry (ghcr.io)
+#
+# 什么是 workflow？
+#   - GitHub Actions 的自动化脚本
+#   - 由多个 jobs（任务）组成
+#   - 每个 job 包含多个 steps（步骤）
+# ============================================================================
+
+# workflow 的名称，会显示在 GitHub Actions 页面
 name: Manual Firefox Build
 
-# 可以手动触发
+# ============================================================================
+# on: 触发条件 - 什么时候运行这个 workflow
+# ============================================================================
 on:
+  # workflow_dispatch: 允许手动触发（在 Actions 页面会出现 "Run workflow" 按钮）
   workflow_dispatch:
+    # inputs: 运行时可以填写的参数（会在点击 "Run workflow" 时弹出）
     inputs:
       push_to_registry:
+        # 参数的说明文字
         description: '是否推送到 ghcr.io (自动使用 GITHUB_TOKEN，无需配置)'
-        required: false
-        default: 'true'
-        type: choice
+        required: false    # 是否必填
+        default: 'true'    # 默认值
+        type: choice       # 类型：选择框
         options:
-          - 'true'
-          - 'false'
+          - 'true'         # 选项1：推送
+          - 'false'        # 选项2：不推送
 
+# ============================================================================
+# jobs: 定义要执行的任务
+# ============================================================================
 jobs:
+  # job ID（可以自定义名称）
   build-firefox:
+    # runs-on: 指定运行环境（GitHub 提供的虚拟机）
+    # ubuntu-latest = 最新版本的 Ubuntu Linux
     runs-on: ubuntu-latest
 
+    # ========================================================================
+    # steps: 这个 job 包含的具体步骤（按顺序执行）
+    # ========================================================================
     steps:
+      # ----------------------------------------------------------------------
+      # 步骤 1: 检出代码
+      # ----------------------------------------------------------------------
+      # name: 步骤的名称（显示在日志中）
       - name: Checkout code
+        # uses: 使用现成的 action（别人写好的模块）
+        # actions/checkout@v3 = GitHub 官方提供的检出代码工具
         uses: actions/checkout@v3
+        # 作用：把你的仓库代码下载到虚拟机中
 
+      # ----------------------------------------------------------------------
+      # 步骤 2: 设置 QEMU（用于跨平台构建）
+      # ----------------------------------------------------------------------
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+        # QEMU 是什么？
+        #   - 一个模拟器，可以在 x86 机器上构建 ARM 镜像
+        #   - 让 GitHub 的 x86 服务器可以构建 arm64 镜像
 
+      # ----------------------------------------------------------------------
+      # 步骤 3: 设置 Docker Buildx（Docker 的高级构建工具）
+      # ----------------------------------------------------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        # Docker Buildx 是什么？
+        #   - Docker 的扩展构建工具
+        #   - 支持多平台构建（同时构建 amd64 和 arm64）
+        #   - 支持构建缓存（加速后续构建）
 
-      # 如果选择推送到 ghcr.io，需要登录
+      # ----------------------------------------------------------------------
+      # 步骤 4: 登录到 GitHub Container Registry
+      # ----------------------------------------------------------------------
+      # if: 条件判断 - 只有当用户选择推送时才执行这步
       - name: Log in to GitHub Container Registry
         if: ${{ github.event.inputs.push_to_registry == 'true' }}
         uses: docker/login-action@v2
+        # with: 传递参数给这个 action
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ghcr.io                        # 要登录的仓库地址
+          username: ${{ github.actor }}            # 你的 GitHub 用户名（自动获取）
+          password: ${{ secrets.GITHUB_TOKEN }}    # GitHub 自动提供的 token（无需配置）
+        # 作用：登录到 ghcr.io，这样才能推送镜像
 
+      # ----------------------------------------------------------------------
+      # 步骤 5: 构建 base 镜像（基础镜像）
+      # ----------------------------------------------------------------------
       - name: Build base image
         uses: docker/build-push-action@v5
+        # with: 配置构建参数
         with:
-          context: .
-          file: ./docker/base/Dockerfile
-          tags: ghcr.io/browserless/base:latest
-          # 多平台构建 base 镜像
+          context: .                                  # 构建上下文（当前目录）
+          file: ./docker/base/Dockerfile              # Dockerfile 路径
+          tags: ghcr.io/browserless/base:latest       # 镜像标签
+          # platforms: 指定要构建的平台（多平台构建）
+          # 这会同时构建两个版本：
+          #   - linux/amd64: 适用于 Intel/AMD 处理器（x86_64）
+          #   - linux/arm64: 适用于 ARM 处理器（如 Apple Silicon, AWS Graviton）
           platforms: |
             linux/amd64
             linux/arm64
-          push: false
+          push: false                                 # 不推送 base 镜像（仅用于后续构建）
+          # cache-from: 从 GitHub Actions 缓存读取（加速构建）
           cache-from: type=gha
+          # cache-to: 将构建缓存保存到 GitHub Actions（mode=max 保存所有层）
           cache-to: type=gha,mode=max
 
-      - name: Build Firefox image (optimized)
+      # ----------------------------------------------------------------------
+      # 步骤 6: 构建 Firefox 镜像
+      # ----------------------------------------------------------------------
+      - name: Build Firefox image
         uses: docker/build-push-action@v5
+        # with: 配置 Firefox 镜像的构建参数
         with:
-          context: .
-          file: ./Dockerfile.firefox-optimized
+          context: .                                  # 构建上下文
+          file: ./docker/firefox/Dockerfile           # 使用原始项目的 Firefox Dockerfile
+          # build-args: 传递给 Dockerfile 的构建参数
           build-args: |
             VERSION=latest
+          # tags: 给镜像打标签（可以有多个）
+          # ${{ github.repository_owner }} = 你的 GitHub 用户名
+          # ${{ github.sha }} = 当前 commit 的 SHA 值
           tags: |
             ghcr.io/${{ github.repository_owner }}/browserless-firefox:latest
             ghcr.io/${{ github.repository_owner }}/browserless-firefox:${{ github.sha }}
-          # 多平台构建：amd64 和 arm64
+          # platforms: 多平台构建
+          # Docker 会自动创建一个 manifest，包含两个平台的镜像
+          # 用户拉取时会自动选择匹配的平台
           platforms: |
             linux/amd64
             linux/arm64
+          # push: 是否推送到 ghcr.io（取决于用户的选择）
           push: ${{ github.event.inputs.push_to_registry == 'true' }}
+          # 使用 GitHub Actions 缓存加速构建
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # ----------------------------------------------------------------------
+      # 步骤 7: 显示构建摘要
+      # ----------------------------------------------------------------------
       - name: Build summary
+        # run: 直接运行 shell 命令（不使用 action）
+        # | 表示多行字符串（YAML 语法）
         run: |
           echo "✅ Firefox 多平台镜像构建完成！"
           echo ""
@@ -76,6 +157,7 @@ jobs:
           echo "  - linux/amd64 (x86_64)"
           echo "  - linux/arm64 (aarch64)"
           echo ""
+          # if 判断：检查用户是否选择了推送
           if [ "${{ github.event.inputs.push_to_registry }}" == "true" ]; then
             echo "📦 镜像已推送到: ghcr.io/${{ github.repository_owner }}/browserless-firefox:latest"
             echo ""
