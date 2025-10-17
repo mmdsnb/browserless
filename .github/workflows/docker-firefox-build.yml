@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       push_to_registry:
-        description: '是否推送到 ghcr.io (需要配置 secrets)'
+        description: '是否推送到 ghcr.io (自动使用 GITHUB_TOKEN，无需配置)'
         required: false
-        default: 'false'
+        default: 'true'
         type: choice
         options:
           - 'true'
