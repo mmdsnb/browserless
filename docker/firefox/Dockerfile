@@ -7,6 +7,7 @@ COPY src src/
 RUN rm -r src/routes/
 COPY src/routes/management src/routes/management/
 COPY src/routes/firefox src/routes/firefox/
+COPY mcp_config.json ./
 
 RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections && \
   apt-get -y -qq install software-properties-common &&\
@@ -39,4 +40,4 @@ RUN ./node_modules/playwright-core/cli.js install --with-deps firefox &&\
 
 USER blessuser
 
-CMD sh -c "npx @playwright/mcp --port 8931 & ./scripts/start.sh"
+CMD sh -c "npx @playwright/mcp --host 0.0.0.0 --port 8931 --config ./mcp_config.json & ./scripts/start.sh"
