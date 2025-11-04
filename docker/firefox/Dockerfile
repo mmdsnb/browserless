@@ -32,10 +32,11 @@ RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula sele
 RUN ./node_modules/playwright-core/cli.js install --with-deps firefox &&\
   npm run build &&\
   npm prune production &&\
+  npm install -g @playwright/mcp &&\
   chown -R blessuser:blessuser $APP_DIR &&\
   fc-cache -f -v && \
   apt-get -qq clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/fonts/truetype/noto
 
 USER blessuser
 
-CMD ["./scripts/start.sh"]
+CMD sh -c "npx @playwright/mcp --port 8931 & ./scripts/start.sh"
